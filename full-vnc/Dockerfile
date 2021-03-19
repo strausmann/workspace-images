@@ -1,9 +1,7 @@
 FROM gitpod/workspace-full:latest
 
 # Install Xvfb, JavaFX-helpers and Openbox window manager
-RUN sudo apt-get update && \
-    sudo apt-get install -yq xvfb x11vnc xterm openjfx libopenjfx-java openbox && \
-    sudo rm -rf /var/lib/apt/lists/*
+RUN sudo install-packages xvfb x11vnc xterm openjfx libopenjfx-java openbox
 
 # Overwrite this env variable to use a different window manager
 ENV WINDOW_MANAGER="openbox"
@@ -14,8 +12,8 @@ USER root
 RUN sed -ri "s/<number>4<\/number>/<number>1<\/number>/" /etc/xdg/openbox/rc.xml
 
 # Install novnc
-RUN git clone https://github.com/novnc/noVNC.git /opt/novnc \
-    && git clone https://github.com/novnc/websockify /opt/novnc/utils/websockify
+RUN git clone --depth 1 https://github.com/novnc/noVNC.git /opt/novnc \
+    && git clone --depth 1 https://github.com/novnc/websockify /opt/novnc/utils/websockify
 COPY novnc-index.html /opt/novnc/index.html
 
 # Add VNC startup script

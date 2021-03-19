@@ -1,53 +1,7 @@
-FROM buildpack-deps:focal
+# Dazzle do not supports ARG TRIGGER_REBUILD=2
+FROM gitpod/workspace-base:latest
 
-### base ###
-RUN yes | unminimize \
-    && apt-get install -yq \
-        zip \
-        unzip \
-        bash-completion \
-        build-essential \
-        htop \
-        jq \
-        less \
-        locales \
-        man-db \
-        nano \
-        software-properties-common \
-        sudo \
-        time \
-        vim \
-        multitail \
-        lsof \
-        ssl-cert \
-    && locale-gen en_US.UTF-8 \
-    && mkdir /var/lib/apt/dazzle-marks \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/*
-
-ENV LANG=en_US.UTF-8
-
-### Git ###
-RUN add-apt-repository -y ppa:git-core/ppa \
-    && apt-get install -yq git \
-    && rm -rf /var/lib/apt/lists/*
-
-### Gitpod user ###
-# '-l': see https://docs.docker.com/develop/develop-images/dockerfile_best-practices/#user
-RUN useradd -l -u 33333 -G sudo -md /home/gitpod -s /bin/bash -p gitpod gitpod \
-    # passwordless sudo for users in the 'sudo' group
-    && sed -i.bkp -e 's/%sudo\s\+ALL=(ALL\(:ALL\)\?)\s\+ALL/%sudo ALL=NOPASSWD:ALL/g' /etc/sudoers
-ENV HOME=/home/gitpod
-WORKDIR $HOME
-# custom Bash prompt
-RUN { echo && echo "PS1='\[\e]0;\u \w\a\]\[\033[01;32m\]\u\[\033[00m\] \[\033[01;34m\]\w\[\033[00m\] \\\$ '" ; } >> .bashrc
-
-### Gitpod user (2) ###
-USER gitpod
-# use sudo so that user does not get sudo usage info on (the first) login
-RUN sudo echo "Running 'sudo' for Gitpod: success" && \
-    # create .bashrc.d folder and source it in the bashrc
-    mkdir /home/gitpod/.bashrc.d && \
-    (echo; echo "for i in \$(ls \$HOME/.bashrc.d/*); do source \$i; done"; echo) >> /home/gitpod/.bashrc
+RUN echo "ws full starts"
 
 ### Install C/C++ compiler and associated tools ###
 LABEL dazzle/layer=lang-c
@@ -58,22 +12,20 @@ ENV TRIGGER_REBUILD=3
 RUN curl -o /var/lib/apt/dazzle-marks/llvm.gpg -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
     && apt-key add /var/lib/apt/dazzle-marks/llvm.gpg \
     && echo "deb https://apt.llvm.org/focal/ llvm-toolchain-focal main" >> /etc/apt/sources.list.d/llvm.list \
-    && apt-get update \
-    && apt-get install -yq \
+    && install-packages \
         clang \
         clangd \
         clang-format \
         clang-tidy \
         gdb \
-        lld \
-    && cp /var/lib/dpkg/status /var/lib/apt/dazzle-marks/lang-c.status \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/*
+        lld
 
 ### Apache, PHP and Nginx ###
 LABEL dazzle/layer=tool-nginx
 LABEL dazzle/test=tests/lang-php.yaml
 USER root
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -yq \
+ENV TRIGGER_REBUILD=2
+RUN install-packages \
         apache2 \
         nginx \
         nginx-extras \
@@ -95,9 +47,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -yq \
         php-tokenizer \
         php-xml \
         php-zip \
-    && cp /var/lib/dpkg/status /var/lib/apt/dazzle-marks/tool-nginx.status \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* \
-    && mkdir /var/run/nginx \
+    && mkdir -p /var/run/nginx \
     && ln -s /etc/apache2/mods-available/rewrite.load /etc/apache2/mods-enabled/rewrite.load \
     && chown -R gitpod:gitpod /etc/apache2 /var/run/apache2 /var/lock/apache2 /var/log/apache2 \
     && chown -R gitpod:gitpod /etc/nginx /var/run/nginx /var/lib/nginx/ /var/log/nginx/
@@ -105,8 +55,8 @@ COPY --chown=gitpod:gitpod apache2/ /etc/apache2/
 COPY --chown=gitpod:gitpod nginx /etc/nginx/
 
 ## The directory relative to your git repository that will be served by Apache / Nginx
-ENV APACHE_DOCROOT_IN_REPO="public" \
-    NGINX_DOCROOT_IN_REPO="public"
+ENV APACHE_DOCROOT_IN_REPO="public"
+ENV NGINX_DOCROOT_IN_REPO="public"
 
 ### Homebrew ###
 LABEL dazzle/layer=tool-brew
@@ -119,14 +69,14 @@ ENV PATH="$PATH:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin/"
     MANPATH="$MANPATH:/home/linuxbrew/.linuxbrew/share/man" \
     INFOPATH="$INFOPATH:/home/linuxbrew/.linuxbrew/share/info" \
     HOMEBREW_NO_AUTO_UPDATE=1
-RUN sudo apt-get remove -y cmake \
+RUN sudo apt remove -y cmake \
     && brew install cmake
 
 ### Go ###
 LABEL dazzle/layer=lang-go
 LABEL dazzle/test=tests/lang-go.yaml
 USER gitpod
-ENV GO_VERSION=1.15
+ENV GO_VERSION=1.16.2
 ENV GOPATH=$HOME/go-packages
 ENV GOROOT=$HOME/go
 ENV PATH=$GOROOT/bin:$GOPATH/bin:$PATH
@@ -134,7 +84,7 @@ RUN curl -fsSL https://storage.googleapis.com/golang/go$GO_VERSION.linux-amd64.t
 # install VS Code Go tools from https://github.com/Microsoft/vscode-go/blob/0faec7e5a8a69d71093f08e035d33beb3ded8626/src/goInstallTools.ts#L19-L45
     go get -u -v \
         github.com/mdempsky/gocode \
-        github.com/uudashr/gopkgs/cmd/gopkgs \
+        github.com/uudashr/gopkgs/cmd/gopkgs@v2 \
         github.com/ramya-rao-a/go-outline \
         github.com/acroca/go-symbols \
         golang.org/x/tools/cmd/guru \
@@ -150,7 +100,6 @@ RUN curl -fsSL https://storage.googleapis.com/golang/go$GO_VERSION.linux-amd64.t
         winterdrache.de/goformat/goformat \
         golang.org/x/lint/golint \
         github.com/cweill/gotests/... \
-        github.com/alecthomas/gometalinter \
         honnef.co/go/tools/... \
         github.com/mgechev/revive \
         github.com/sourcegraph/go-langserver \
@@ -158,9 +107,7 @@ RUN curl -fsSL https://storage.googleapis.com/golang/go$GO_VERSION.linux-amd64.t
         github.com/davidrjenni/reftools/cmd/fillstruct \
         github.com/godoctor/godoctor && \
     GO111MODULE=on go get -u -v \
-        golang.org/x/tools/gopls@v0.6.0 && \
-    go get -u -v -d github.com/stamblerre/gocode && \
-    go build -o $GOPATH/bin/gocode-gomod github.com/stamblerre/gocode && \
+        golang.org/x/tools/gopls@v0.6.8 && \
     sudo rm -rf $GOPATH/src $GOPATH/pkg /home/gitpod/.cache/go /home/gitpod/.cache/go-build
 # user Go packages
 ENV GOPATH=/workspace/go \
@@ -173,7 +120,7 @@ LABEL dazzle/test=tests/lang-java.yaml
 USER gitpod
 RUN curl -fsSL "https://get.sdkman.io" | bash \
  && bash -c ". /home/gitpod/.sdkman/bin/sdkman-init.sh \
-             && sdk install java 11.0.9.fx-zulu \
+             && sdk install java 11.0.10.fx-zulu \
              && sdk install gradle \
              && sdk install maven \
              && sdk flush archives \
@@ -189,12 +136,12 @@ ENV GRADLE_USER_HOME=/workspace/.gradle/
 LABEL dazzle/layer=lang-node
 LABEL dazzle/test=tests/lang-node.yaml
 USER gitpod
-ENV NODE_VERSION=14.15.4
-RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.37.0/install.sh | PROFILE=/dev/null bash \
+ENV NODE_VERSION=14.16.0
+RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.37.2/install.sh | PROFILE=/dev/null bash \
     && bash -c ". .nvm/nvm.sh \
         && nvm install $NODE_VERSION \
         && nvm alias default $NODE_VERSION \
-        && npm install -g npm typescript yarn" \
+        && npm install -g typescript yarn" \
     && echo ". ~/.nvm/nvm-lazy.sh"  >> /home/gitpod/.bashrc.d/50-node
 # above, we are adding the lazy nvm init to .bashrc, because one is executed on interactive shells, the other for non-interactive shells (e.g. plugin-host)
 COPY --chown=gitpod:gitpod nvm-lazy.sh /home/gitpod/.nvm/nvm-lazy.sh
@@ -204,19 +151,18 @@ ENV PATH=$PATH:/home/gitpod/.nvm/versions/node/v${NODE_VERSION}/bin
 LABEL dazzle/layer=lang-python
 LABEL dazzle/test=tests/lang-python.yaml
 USER gitpod
-RUN sudo apt-get update && \
-    sudo apt-get install -y python3-pip && \
-    sudo rm -rf /var/lib/apt/lists/*
+RUN sudo install-packages python3-pip
+
 ENV PATH=$HOME/.pyenv/bin:$HOME/.pyenv/shims:$PATH
 RUN curl -fsSL https://github.com/pyenv/pyenv-installer/raw/master/bin/pyenv-installer | bash \
     && { echo; \
         echo 'eval "$(pyenv init -)"'; \
         echo 'eval "$(pyenv virtualenv-init -)"'; } >> /home/gitpod/.bashrc.d/60-python \
     && pyenv update \
-    && pyenv install 3.8.7 \
-    && pyenv global 3.8.7 \
-    && python3 -m pip install --upgrade pip \
-    && python3 -m pip install --upgrade \
+    && pyenv install 3.8.8 \
+    && pyenv global 3.8.8 \
+    && python3 -m pip install --no-cache-dir --upgrade pip \
+    && python3 -m pip install --no-cache-dir --upgrade \
         setuptools wheel virtualenv pipenv pylint rope flake8 \
         mypy autopep8 pep8 pylama pydocstyle bandit notebook \
         twine \
@@ -229,8 +175,8 @@ RUN curl -fsSL https://github.com/pyenv/pyenv-installer/raw/master/bin/pyenv-ins
 LABEL dazzle/layer=lang-ruby
 LABEL dazzle/test=tests/lang-ruby.yaml
 USER gitpod
-RUN curl -sSL https://rvm.io/mpapis.asc | gpg --import - \
-    && curl -sSL https://rvm.io/pkuczynski.asc | gpg --import - \
+RUN curl -fsSL https://rvm.io/mpapis.asc | gpg --import - \
+    && curl -fsSL https://rvm.io/pkuczynski.asc | gpg --import - \
     && curl -fsSL https://get.rvm.io | bash -s stable \
     && bash -lc " \
         rvm requirements \
@@ -247,7 +193,7 @@ LABEL dazzle/layer=lang-rust
 LABEL dazzle/test=tests/lang-rust.yaml
 USER gitpod
 RUN cp /home/gitpod/.profile /home/gitpod/.profile_orig && \
-    curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.49.0 \
+    curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.50.0 \
     && .cargo/bin/rustup component add \
         rls \
         rust-analysis \
@@ -263,16 +209,18 @@ RUN bash -lc "cargo install cargo-watch cargo-edit cargo-tree"
 LABEL dazzle/layer=tool-docker
 LABEL dazzle/test=tests/tool-docker.yaml
 USER root
+ENV TRIGGER_REBUILD=2
 # https://docs.docker.com/engine/install/ubuntu/
 RUN curl -o /var/lib/apt/dazzle-marks/docker.gpg -fsSL https://download.docker.com/linux/ubuntu/gpg \
     && apt-key add /var/lib/apt/dazzle-marks/docker.gpg \
     && add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
-    && apt-get update \
-    && apt-get install -y docker-ce docker-ce-cli containerd.io slirp4netns docker-compose \
-    && cp /var/lib/dpkg/status /var/lib/apt/dazzle-marks/tool-docker.status \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/*
+    && install-packages docker-ce=5:19.03.15~3-0~ubuntu-focal docker-ce-cli=5:19.03.15~3-0~ubuntu-focal containerd.io slirp4netns
+
+RUN curl -o /usr/local/bin/docker-compose -fsSL https://github.com/docker/compose/releases/download/1.28.5/docker-compose-Linux-x86_64 \
+    && chmod +x /usr/local/bin/docker-compose
+
 # https://github.com/wagoodman/dive
-RUN curl -o /tmp/dive.deb -L https://github.com/wagoodman/dive/releases/download/v0.9.2/dive_0.9.2_linux_amd64.deb \
+RUN curl -o /tmp/dive.deb -fsSL https://github.com/wagoodman/dive/releases/download/v0.9.2/dive_0.9.2_linux_amd64.deb \
     && apt install /tmp/dive.deb \
     && rm /tmp/dive.deb
 
@@ -280,7 +228,7 @@ RUN curl -o /tmp/dive.deb -L https://github.com/wagoodman/dive/releases/download
 LABEL dazzle/layer=dazzle-prologue
 LABEL dazzle/test=tests/prologue.yaml
 USER root
-RUN curl -o /usr/bin/dazzle-util -L https://github.com/csweichel/dazzle/releases/download/v0.0.3/dazzle-util_0.0.3_Linux_x86_64 \
+RUN curl -o /usr/bin/dazzle-util -fsSL https://github.com/csweichel/dazzle/releases/download/v0.0.3/dazzle-util_0.0.3_Linux_x86_64 \
     && chmod +x /usr/bin/dazzle-util
 # merge dpkg status files
 RUN cp /var/lib/dpkg/status /tmp/dpkg-status \

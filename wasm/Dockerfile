@@ -1,7 +1,7 @@
 FROM gitpod/workspace-full
 
 RUN bash -cl "cargo install wasm-pack cargo-wasm cargo-generate \
-    && curl \"https://wasmtime.dev/install.sh\" -sSf | bash; \
+    && curl -fsSL https://wasmtime.dev/install.sh  | bash; \
        rustup target add wasm32-wasi"
 
 RUN mkdir /tmp/wasm-sdk \
@@ -10,10 +10,10 @@ RUN mkdir /tmp/wasm-sdk \
     && sudo dpkg -i wasi-sdk_12.0_amd64.deb \
     && rm -rf /tmp/wasi-sdk
 
-RUN git clone "https://github.com/emscripten-core/emsdk.git" $HOME/.emsdk \
+RUN git clone --depth 1 "https://github.com/emscripten-core/emsdk.git" $HOME/.emsdk \
     && cd $HOME/.emsdk \
     && ./emsdk install latest \
     && ./emsdk activate latest \
     && printf "\nsource $HOME/.emsdk/emsdk_env.sh\nclear\n" >> ~/.bashrc
 
-RUN brew install binaryen
+RUN brew install binaryen wabt
